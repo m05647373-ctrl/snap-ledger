@@ -1,3 +1,5 @@
 streamlit
 pillow
 google-generativeai
+plotly
+
