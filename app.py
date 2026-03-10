@@ -5,7 +5,7 @@ import json
 import pandas as pd
 import os
 import datetime
-import plotly.express as px  # 换用更强大的 Plotly 交互图表库
+import plotly.express as px
 
 # ==========================================
 # 1. 数据持久化：引入本地文件存储
@@ -109,9 +109,28 @@ def confirm_dialog(results):
             st.rerun()
 
 # ==========================================
-# 5. App 布局：录入页面 & 数据看板
+# 5. 全局数据预处理 (供各 Tab 共享使用)
 # ==========================================
-tab1, tab2 = st.tabs(["📝 记账录入", "📊 财务看板"])
+has_data = len(st.session_state.ledger_data) > 0
+
+if has_data:
+    df = pd.DataFrame(st.session_state.ledger_data)
+    if "收支" not in df.columns:
+        df["收支"] = "支出"
+        
+    df['日期'] = pd.to_datetime(df['时间'], errors='coerce').dt.date
+    total_income = df[df["收支"] == "收入"]["金额 (¥)"].sum()
+    total_expense = df[df["收支"] == "支出"]["金额 (¥)"].sum()
+    balance = total_income - total_expense
+else:
+    df = pd.DataFrame()
+    total_income = total_expense = balance = 0.0
+
+# ==========================================
+# 6. App 布局：三大独立板块
+# ==========================================
+# 新增了 "📈 数据图" 栏目！
+tab1, tab2, tab3 = st.tabs(["📝 记账录入", "📊 财务明细", "📈 数据图"])
 
 # ----------------- 标签页 1：记账录入 -----------------
 with tab1:
@@ -165,36 +184,12 @@ with tab1:
         else:
             confirm_dialog(st.session_state.parsed_results)
 
-# ----------------- 标签页 2：财务看板 (模块化分离) -----------------
+# ----------------- 标签页 2：财务明细 (仅保留硬核数据) -----------------
 with tab2:
-    if not st.session_state.ledger_data:
+    if not has_data:
         st.info("📭 当前账本空空如也，快去录入你的第一笔账单吧！")
     else:
-        df = pd.DataFrame(st.session_state.ledger_data)
-        if "收支" not in df.columns:
-            df["收支"] = "支出"
-            
-        df['日期'] = pd.to_datetime(df['时间'], errors='coerce').dt.date
-            
-        total_income = df[df["收支"] == "收入"]["金额 (¥)"].sum()
-        total_expense = df[df["收支"] == "支出"]["金额 (¥)"].sum()
-        balance = total_income - total_expense
-        
-        # 【模块 1：预算监控】---------------------------------
-        with st.container(border=True):
-            st.subheader("🎯 预算监控")
-            budget_pct = (total_expense / monthly_budget) * 100 if monthly_budget > 0 else 0
-            if total_expense > monthly_budget:
-                st.error(f"🚨 **预算超标！** 本月预算 ¥{monthly_budget}，已支出 ¥{total_expense:.2f}，超支 ¥{(total_expense - monthly_budget):.2f}！")
-                st.progress(1.0)
-            elif budget_pct > 80:
-                st.warning(f"⚠️ **预算告急！** 已使用 {budget_pct:.1f}%。剩余：¥{(monthly_budget - total_expense):.2f}")
-                st.progress(budget_pct / 100)
-            else:
-                st.success(f"✅ **预算健康！** 剩余额度：¥{(monthly_budget - total_expense):.2f}")
-                st.progress(budget_pct / 100)
-        
-        # 【模块 2：核心收支指标】---------------------------------
+        # 【模块 1：核心收支指标】
         with st.container(border=True):
             st.subheader("💡 核心指标")
             col1, col2, col3, col4 = st.columns(4)
@@ -206,18 +201,41 @@ with tab2:
                 csv = df.to_csv(index=False).encode('utf-8-sig')
                 st.download_button("📥 导出CSV报表", data=csv, file_name="我的账单.csv", mime="text/csv", use_container_width=True)
 
-        # 【模块 3：可视化图表区】---------------------------------
+        # 【模块 2：详细流水表格】
+        with st.container(border=True):
+            st.subheader("📝 账单流水明细")
+            st.data_editor(df.drop(columns=['日期'], errors='ignore'), use_container_width=True, num_rows="dynamic")
+
+# ----------------- 标签页 3：数据图 (全新独立的数据分析中心) -----------------
+with tab3:
+    if not has_data:
+        st.info("📭 还没有数据哦，记几笔账再来看图表吧！")
+    else:
+        # 【模块 1：预算监控】
+        with st.container(border=True):
+            st.subheader("🎯 预算监控")
+            budget_pct = (total_expense / monthly_budget) * 100 if monthly_budget > 0 else 0
+            if total_expense > monthly_budget:
+                st.error(f"🚨 **预算超标！** 本月预算 ¥{monthly_budget}，已支出 ¥{total_expense:.2f}，超支 ¥{(total_expense - monthly_budget):.2f}！")
+                st.progress(1.0)
+            elif budget_pct > 80:
+                st.warning(f"⚠️ **预算告急！** 已使用 {budget_pct:.1f}%。剩余额度：¥{(monthly_budget - total_expense):.2f}")
+                st.progress(budget_pct / 100)
+            else:
+                st.success(f"✅ **预算健康！** 剩余额度：¥{(monthly_budget - total_expense):.2f}")
+                st.progress(budget_pct / 100)
+
+        # 【模块 2：可视化图表区】
         df_expense = df[df["收支"] == "支出"]
         if not df_expense.empty:
             with st.container(border=True):
-                st.subheader("📈 支出分析")
+                st.subheader("📈 支出深度分析")
                 
-                # 为了让图表足够大，我们上下排列而不是左右挤在一起
                 chart_col1, chart_col2 = st.columns(2)
                 
                 with chart_col1:
                     category_expense = df_expense.groupby('分类')['金额 (¥)'].sum().reset_index()
-                    # Plotly 甜甜圈图，天生支持显示精确数值和百分比！
+                    # 高清带比例的甜甜圈图
                     fig_pie = px.pie(category_expense, values='金额 (¥)', names='分类', hole=0.4, title="支出分类占比")
                     fig_pie.update_traces(textposition='inside', textinfo='percent+label', hovertemplate="%{label}<br>金额: ¥%{value:.2f}<br>占比: %{percent}")
                     st.plotly_chart(fig_pie, use_container_width=True)
@@ -225,12 +243,9 @@ with tab2:
                 with chart_col2:
                     daily_expense = df_expense.groupby('日期')['金额 (¥)'].sum().reset_index()
                     daily_expense['日期'] = pd.to_datetime(daily_expense['日期'])
-                    # Plotly 折线图，鼠标放上去就能看具体哪天花了多少钱，甚至能框选放大！
+                    # 可精确交互点击的曲线图
                     fig_line = px.line(daily_expense, x='日期', y='金额 (¥)', markers=True, title="每日支出趋势")
                     fig_line.update_traces(hovertemplate='日期: %{x}<br>支出: ¥%{y:.2f}')
                     st.plotly_chart(fig_line, use_container_width=True)
-
-        # 【模块 4：详细流水表格】---------------------------------
-        with st.container(border=True):
-            st.subheader("📝 账单流水明细")
-            st.data_editor(df.drop(columns=['日期'], errors='ignore'), use_container_width=True, num_rows="dynamic")
+        else:
+            st.info("还没有记录任何支出，暂无法生成分析图表。")
