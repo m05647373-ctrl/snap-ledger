@@ -21,7 +21,21 @@ with st.sidebar:
     st.markdown("[获取免费 Gemini API Key](https://aistudio.google.com/app/apikey)")
     st.markdown("---")
     st.markdown("💡 **支持识别：**\n- 微信/支付宝账单截图\n- 餐饮实体小票\n- 出租车发票")
-
+    # ---------------- 添加下面这段探测代码 ----------------
+    st.markdown("---")
+    if st.button("🔍 探测我的API Key支持的模型"):
+        if not api_key:
+            st.error("⚠️ 请先在上面输入API Key！")
+        else:
+            with st.spinner("正在呼叫 Google 服务器..."):
+                genai.configure(api_key=api_key)
+                try:
+                    # 获取所有支持生成内容的模型列表
+                    models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                    st.success("✅ 探测成功！你的 Key 支持以下模型：")
+                    st.write(models)
+                except Exception as e:
+                    st.error(f"探测失败: {e}")
 # ==========================================
 # 3. 核心功能：调用 AI 进行图像解析
 # ==========================================
@@ -108,5 +122,6 @@ if uploaded_file is not None:
                             st.balloons()
 
                             st.success(f"已成功将 {amount} 元记入 [{category}] 账本！")
+
 
 
