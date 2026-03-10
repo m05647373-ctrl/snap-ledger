@@ -1,0 +1,109 @@
+import streamlit as st
+from PIL import Image
+import google.generativeai as genai
+import json
+
+# ==========================================
+# 1. 页面基本配置
+# ==========================================
+st.set_page_config(page_title="咔嚓记账 - AI视觉记账", page_icon="📸", layout="centered")
+
+st.title("📸 咔嚓记账 SnapLedger")
+st.markdown("上传你的**购物小票**或**支付截图**，AI会自动帮你提取账单信息！")
+
+# ==========================================
+# 2. API Key 设置 (在侧边栏)
+# ==========================================
+with st.sidebar:
+    st.header("⚙️ 设置")
+    # 让用户在网页上输入API Key，安全起见使用password类型
+    api_key = st.text_input("请输入 Google Gemini API Key:", type="password")
+    st.markdown("[获取免费 Gemini API Key](https://aistudio.google.com/app/apikey)")
+    st.markdown("---")
+    st.markdown("💡 **支持识别：**\n- 微信/支付宝账单截图\n- 餐饮实体小票\n- 出租车发票")
+
+# ==========================================
+# 3. 核心功能：调用 AI 进行图像解析
+# ==========================================
+def analyze_receipt_with_ai(image, api_key):
+    """调用大模型分析图片并返回JSON结果"""
+    # 配置 API Key
+    genai.configure(api_key=api_key)
+    
+    # 使用 Gemini 1.5 Flash 模型 (速度快，支持多模态，适合视觉任务)
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    # 设定 Prompt 提示词，强制要求返回 JSON 格式
+    prompt = """
+    你是一个智能财务助手。请分析这张图片（可能是支付截图、购物小票或发票），提取以下信息：
+    1. 商家名称 (merchant)
+    2. 消费金额 (amount，保留两位小数的数字)
+    3. 交易时间 (time，格式：YYYY-MM-DD HH:MM，如果图中没有年份则默认今年)
+    4. 消费分类 (category，例如：餐饮、交通、购物、居住、娱乐、其他)
+    
+    请严格按照以下 JSON 格式返回，不要输出任何其他多余的文字、解释或Markdown符号：
+    {
+      "merchant": "商家名称",
+      "amount": 100.50,
+      "time": "2026-03-10 14:30",
+      "category": "餐饮"
+    }
+    """
+    
+    try:
+        # 向模型发送图片和提示词
+        response = model.generate_content([prompt, image])
+        
+        # 清理返回的文本（去除可能存在的 ```json 和 ``` 标记）
+        result_text = response.text.replace("```json", "").replace("```", "").strip()
+        
+        # 将文本解析为 Python 字典
+        return json.loads(result_text)
+    except Exception as e:
+        return {"error": str(e)}
+
+# ==========================================
+# 4. 前端交互逻辑：上传与展示
+# ==========================================
+uploaded_file = st.file_uploader("上传截图/小票...", type=["jpg", "jpeg", "png", "webp"])
+
+if uploaded_file is not None:
+    # 左右两列布局
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("原始图片")
+        # 打开并显示用户上传的图片
+        image = Image.open(uploaded_file)
+        st.image(image, use_container_width=True)
+        
+    with col2:
+        st.subheader("🤖 AI 解析结果")
+        
+        if not api_key:
+            st.warning("⚠️ 请先在左侧边栏输入 API Key！")
+        else:
+            with st.spinner("AI 正在光速识别中，请稍候..."):
+                # 调用我们上面写的函数
+                result = analyze_receipt_with_ai(image, api_key)
+                
+                if "error" in result:
+                    st.error(f"解析失败: {result['error']}")
+                else:
+                    st.success("解析成功！")
+                    
+                    # 使用好看的表单展示结果
+                    with st.form("ledger_form"):
+                        merchant = st.text_input("🏪 商家名称", value=result.get("merchant", ""))
+                        amount = st.number_input("💰 消费金额 (¥)", value=float(result.get("amount", 0.0)), format="%.2f")
+                        time = st.text_input("⏰ 交易时间", value=result.get("time", ""))
+                        category = st.selectbox("🏷️ 分类", 
+                                                options=["餐饮", "交通", "购物", "居住", "娱乐", "其他"],
+                                                index=["餐饮", "交通", "购物", "居住", "娱乐", "其他"].index(result.get("category", "其他")) if result.get("category") in ["餐饮", "交通", "购物", "居住", "娱乐", "其他"] else 5)
+                        
+                        # 提交按钮
+                        submitted = st.form_submit_button("✅ 确认录入")
+                        if submitted:
+                            # 模拟将数据存入数据库
+                            st.balloons()
+                            st.success(f"已成功将 {amount} 元记入 [{category}] 账本！")
