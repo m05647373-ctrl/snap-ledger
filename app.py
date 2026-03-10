@@ -8,9 +8,10 @@ import datetime
 import plotly.express as px
 
 # ==========================================
-# 1. 数据持久化：引入本地文件存储
+# 1. 数据持久化：引入本地文件存储 (账单 + 设置)
 # ==========================================
 DATA_FILE = "ledger_data.json"
+SETTINGS_FILE = "settings.json" # 新增：专门用来保存用户的预算设置
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -22,6 +23,19 @@ def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+def load_settings():
+    """读取用户设置的财务目标"""
+    if os.path.exists(SETTINGS_FILE):
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    # 如果是第一次用，给一个默认值
+    return {"target_savings": 2000.0, "target_expense": 3000.0}
+
+def save_settings(settings):
+    """永久保存用户的财务目标"""
+    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(settings, f, ensure_ascii=False, indent=2)
+
 # ==========================================
 # 2. 页面基本配置 & 状态初始化
 # ==========================================
@@ -29,6 +43,9 @@ st.set_page_config(page_title="咔嚓记账 - AI与手动双核记账", page_ico
 
 if 'ledger_data' not in st.session_state:
     st.session_state.ledger_data = load_data()
+
+if 'user_settings' not in st.session_state:
+    st.session_state.user_settings = load_settings()
 
 if 'parsed_results' not in st.session_state:
     st.session_state.parsed_results = None
@@ -39,17 +56,28 @@ if 'uploader_key' not in st.session_state:
 st.title("📸 咔嚓记账 SnapLedger")
 
 # ==========================================
-# 3. 侧边栏设置 (升级为“双轨制”目标)
+# 3. 侧边栏设置 (动态持久化预算)
 # ==========================================
 with st.sidebar:
     st.header("⚙️ 全局设置")
     api_key = st.text_input("请输入 Google Gemini API Key:", type="password")
     st.markdown("---")
     
-    # 【升级点 1】分层设置财务目标
     st.subheader("🎯 我的财务目标")
-    target_savings = st.number_input("💰 本月预计存多少钱 (¥)", min_value=0.0, value=2000.0, step=500.0, help="目标结余 = 总收入 - 总支出")
-    target_expense = st.number_input("💸 本月最多花多少钱 (¥)", min_value=0.0, value=3000.0, step=500.0, help="支出预算红线")
+    
+    # 从本地配置中读取当前的预算值
+    current_savings = st.session_state.user_settings.get("target_savings", 2000.0)
+    current_expense = st.session_state.user_settings.get("target_expense", 3000.0)
+    
+    # UI 输入框 (绑定当前的配置值)
+    target_savings = st.number_input("💰 本月预计存多少钱 (¥)", min_value=0.0, value=float(current_savings), step=500.0, help="目标结余 = 总收入 - 总支出")
+    target_expense = st.number_input("💸 本月最多花多少钱 (¥)", min_value=0.0, value=float(current_expense), step=500.0, help="支出预算红线")
+    
+    # 【核心逻辑】只要用户在网页上调了数字，立刻写入本地文件永久保存！
+    if target_savings != current_savings or target_expense != current_expense:
+        st.session_state.user_settings["target_savings"] = target_savings
+        st.session_state.user_settings["target_expense"] = target_expense
+        save_settings(st.session_state.user_settings)
     
     st.markdown("---")
     if st.button("🗑️ 清空所有账单数据"):
@@ -57,7 +85,7 @@ with st.sidebar:
         save_data([]) 
         st.session_state.parsed_results = None
         st.session_state.uploader_key += 1
-        st.success("数据已彻底清空！")
+        st.success("数据已彻底清空！(你的预算目标仍会保留)")
         st.rerun()
 
 # ==========================================
@@ -111,7 +139,7 @@ def confirm_dialog(results):
             st.rerun()
 
 # ==========================================
-# 5. 全局数据预处理 (供各 Tab 共享使用)
+# 5. 全局数据预处理
 # ==========================================
 has_data = len(st.session_state.ledger_data) > 0
 
@@ -205,7 +233,7 @@ with tab2:
             st.subheader("📝 账单流水明细")
             st.data_editor(df.drop(columns=['日期'], errors='ignore'), use_container_width=True, num_rows="dynamic")
 
-# ----------------- 标签页 3：数据图 (升级双目标监控) -----------------
+# ----------------- 标签页 3：数据图 -----------------
 with tab3:
     if not has_data:
         st.info("📭 还没有数据哦，记几笔账再来看图表吧！")
@@ -215,11 +243,10 @@ with tab3:
             st.subheader("🎯 财务目标监控进度")
             goal_col1, goal_col2 = st.columns(2, gap="large")
             
-            # 目标一：存款目标 (进攻端)
+            # 目标一：存款目标
             with goal_col1:
                 st.markdown("##### 💰 存款目标 (看结余)")
                 if target_savings > 0:
-                    # 避免进度条超过 1.0 报错，且处理负数
                     saving_pct = max(0.0, min(1.0, balance / target_savings)) 
                     if balance >= target_savings:
                         st.success(f"🎉 **目标达成！** 已存下 ¥{balance:.2f}，超额完成 ¥{(balance - target_savings):.2f}！")
@@ -233,7 +260,7 @@ with tab3:
                 else:
                     st.write("尚未设置存款目标。")
 
-            # 目标二：支出预算 (防守端)
+            # 目标二：支出预算
             with goal_col2:
                 st.markdown("##### 💸 支出预算 (看红线)")
                 if target_expense > 0:
