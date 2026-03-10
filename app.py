@@ -106,4 +106,5 @@ if uploaded_file is not None:
                         if submitted:
                             # 模拟将数据存入数据库
                             st.balloons()
+
                             st.success(f"已成功将 {amount} 元记入 [{category}] 账本！")
