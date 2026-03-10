@@ -86,7 +86,7 @@ with st.sidebar:
         st.rerun()
 
 # ==========================================
-# 4. 核心功能：AI 解析与【带删除功能的翻页弹窗】
+# 4. 核心功能：AI 解析与【全功能翻页弹窗】
 # ==========================================
 def analyze_receipt_with_ai(image, api_key):
     genai.configure(api_key=api_key)
@@ -143,25 +143,29 @@ def confirm_dialog():
         
         st.markdown("---")
         
-        # 【体验升级】双按钮排布：左边删除，右边保存/下一步
-        btn_col1, btn_col2 = st.columns([1, 2])
+        # 【体验升级】三按钮排布：删除 / 上一条 / 下一条
+        btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1.5])
         
         with btn_col1:
-            btn_delete = st.form_submit_button("🗑️ 误识别，删除此条", use_container_width=True)
+            btn_delete = st.form_submit_button("🗑️ 删除此条", use_container_width=True)
             
         with btn_col2:
+            # 只有当不是第一条的时候，才显示“返回”按钮
+            if idx > 0:
+                btn_prev = st.form_submit_button("⬅️ 返回上一条", use_container_width=True)
+            else:
+                btn_prev = False
+                
+        with btn_col3:
             btn_label = "➡️ 确认并核对下一条" if idx < total - 1 else "✅ 全部确认，保存进账本！"
             btn_next = st.form_submit_button(btn_label, use_container_width=True, type="primary")
             
         # --- 按钮逻辑处理 ---
         if btn_delete:
-            # 1. 踢出当前这条错误数据
             st.session_state.parsed_results.pop(idx)
             new_total = len(st.session_state.parsed_results)
             
-            # 2. 判断删除后的走向
             if new_total == 0:
-                # 全删光了
                 st.session_state.parsed_results = None
                 st.session_state.review_index = 0
                 st.session_state.uploader_key += 1 
@@ -178,8 +182,15 @@ def confirm_dialog():
                 st.balloons()
                 st.rerun()
             else:
-                # 删掉的是中间的，idx不用动，自然会显示新的一条
                 st.rerun()
+
+        elif btn_prev:
+            # 返回上一条之前，把当前页面哪怕修改了一半的数据也保存下来，防止丢失
+            st.session_state.parsed_results[idx] = {
+                "时间": time, "收支": tx_type, "商家": merchant, "分类": category, "金额 (¥)": amount
+            }
+            st.session_state.review_index -= 1 
+            st.rerun()
 
         elif btn_next:
             # 保存当前用户的修改回结果数组中
@@ -195,7 +206,6 @@ def confirm_dialog():
                 st.session_state.ledger_data.extend(st.session_state.parsed_results)
                 save_data(st.session_state.ledger_data)
                 
-                # 状态重置，关闭弹窗
                 st.session_state.parsed_results = None
                 st.session_state.review_index = 0
                 st.session_state.uploader_key += 1 
