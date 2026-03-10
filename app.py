@@ -31,7 +31,7 @@ def analyze_receipt_with_ai(image, api_key):
     genai.configure(api_key=api_key)
     
     # 使用 Gemini 1.5 Flash 模型 (速度快，支持多模态，适合视觉任务)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-1.5-flash-latest')
     
     # 设定 Prompt 提示词，强制要求返回 JSON 格式
     prompt = """
@@ -108,3 +108,4 @@ if uploaded_file is not None:
                             st.balloons()
 
                             st.success(f"已成功将 {amount} 元记入 [{category}] 账本！")
+
