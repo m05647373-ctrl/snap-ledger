@@ -8,10 +8,10 @@ import datetime
 import plotly.express as px
 
 # ==========================================
-# 1. 数据持久化：引入本地文件存储 (账单 + 设置)
+# 1. 数据持久化：引入本地文件存储
 # ==========================================
 DATA_FILE = "ledger_data.json"
-SETTINGS_FILE = "settings.json" # 新增：专门用来保存用户的预算设置
+SETTINGS_FILE = "settings.json"
 
 def load_data():
     if os.path.exists(DATA_FILE):
@@ -24,15 +24,12 @@ def save_data(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def load_settings():
-    """读取用户设置的财务目标"""
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    # 如果是第一次用，给一个默认值
     return {"target_savings": 2000.0, "target_expense": 3000.0}
 
 def save_settings(settings):
-    """永久保存用户的财务目标"""
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(settings, f, ensure_ascii=False, indent=2)
 
@@ -50,13 +47,17 @@ if 'user_settings' not in st.session_state:
 if 'parsed_results' not in st.session_state:
     st.session_state.parsed_results = None
 
+# 【新增】用来记录当前翻页核对到第几个了
+if 'review_index' not in st.session_state:
+    st.session_state.review_index = 0
+
 if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
 st.title("📸 咔嚓记账 SnapLedger")
 
 # ==========================================
-# 3. 侧边栏设置 (动态持久化预算)
+# 3. 侧边栏设置
 # ==========================================
 with st.sidebar:
     st.header("⚙️ 全局设置")
@@ -64,16 +65,12 @@ with st.sidebar:
     st.markdown("---")
     
     st.subheader("🎯 我的财务目标")
-    
-    # 从本地配置中读取当前的预算值
     current_savings = st.session_state.user_settings.get("target_savings", 2000.0)
     current_expense = st.session_state.user_settings.get("target_expense", 3000.0)
     
-    # UI 输入框 (绑定当前的配置值)
-    target_savings = st.number_input("💰 本月预计存多少钱 (¥)", min_value=0.0, value=float(current_savings), step=500.0, help="目标结余 = 总收入 - 总支出")
-    target_expense = st.number_input("💸 本月最多花多少钱 (¥)", min_value=0.0, value=float(current_expense), step=500.0, help="支出预算红线")
+    target_savings = st.number_input("💰 本月预计存多少钱 (¥)", min_value=0.0, value=float(current_savings), step=500.0)
+    target_expense = st.number_input("💸 本月最多花多少钱 (¥)", min_value=0.0, value=float(current_expense), step=500.0)
     
-    # 【核心逻辑】只要用户在网页上调了数字，立刻写入本地文件永久保存！
     if target_savings != current_savings or target_expense != current_expense:
         st.session_state.user_settings["target_savings"] = target_savings
         st.session_state.user_settings["target_expense"] = target_expense
@@ -84,12 +81,13 @@ with st.sidebar:
         st.session_state.ledger_data = []
         save_data([]) 
         st.session_state.parsed_results = None
+        st.session_state.review_index = 0
         st.session_state.uploader_key += 1
-        st.success("数据已彻底清空！(你的预算目标仍会保留)")
+        st.success("数据已彻底清空！")
         st.rerun()
 
 # ==========================================
-# 4. 核心功能：AI 解析与确认弹窗
+# 4. 核心功能：AI 解析与【翻页确认弹窗】
 # ==========================================
 def analyze_receipt_with_ai(image, api_key):
     genai.configure(api_key=api_key)
@@ -108,35 +106,71 @@ def analyze_receipt_with_ai(image, api_key):
     except Exception as e:
         return {"error": str(e)}
 
-@st.dialog("📝 核对并保存 AI 提取的账单", width="large")
-def confirm_dialog(results):
-    st.info("💡 请核对 AI 提取的信息，修改无误后点击最下方的保存按钮。")
-    with st.form("batch_confirm_form"):
-        verified_data = []
-        for i, item in enumerate(results):
-            cols = st.columns([2, 1.5, 2, 2.5, 1.5])
-            merchant = cols[0].text_input(f"商家 {i+1}", value=item.get("merchant", ""), key=f"m_{i}")
-            
-            type_options = ["支出", "收入"]
-            default_type = item.get("type", "支出")
-            type_index = type_options.index(default_type) if default_type in type_options else 0
-            tx_type = cols[1].selectbox(f"收支 {i+1}", options=type_options, index=type_index, key=f"type_{i}")
-            
-            amount = cols[2].number_input(f"金额 {i+1}", value=float(item.get("amount", 0.0)), format="%.2f", key=f"a_{i}")
-            time = cols[3].text_input(f"时间 {i+1}", value=item.get("time", ""), key=f"t_{i}")
-            category = cols[4].text_input(f"分类 {i+1}", value=item.get("category", "其他"), key=f"c_{i}")
-            
-            verified_data.append({
-                "时间": time, "收支": tx_type, "商家": merchant, "分类": category, "金额 (¥)": amount
-            })
+@st.dialog("📝 逐条核对账单", width="large")
+def confirm_dialog():
+    results = st.session_state.parsed_results
+    total = len(results)
+    idx = st.session_state.review_index
+    item = results[idx] # 取出当前正在核对的这一条
+    
+    # 【体验升级 1】顶部进度条和计数器
+    st.progress((idx + 1) / total)
+    st.markdown(f"**进度：正在核对第 {idx + 1} 笔（共 {total} 笔）**")
+    st.markdown("---")
+
+    # 注意：表单的 key 必须随着 index 改变，否则 Streamlit 会报错
+    with st.form(key=f"review_form_{idx}"):
         
-        if st.form_submit_button("✅ 确认无误，保存进账本！"):
-            st.session_state.ledger_data.extend(verified_data)
-            save_data(st.session_state.ledger_data)
-            st.session_state.parsed_results = None
-            st.session_state.uploader_key += 1 
-            st.balloons()
-            st.rerun()
+        # 【体验升级 2】金额高亮大卡片 (用醒目的红色背景和加大字号)
+        amt_color = "#ff4b4b" if item.get("type", "支出") == "支出" else "#00c04b"
+        st.markdown(f"""
+        <div style='background-color: {amt_color}15; padding: 15px; border-radius: 10px; border-left: 6px solid {amt_color}; margin-bottom: 20px;'>
+            <div style='font-size: 14px; color: #666;'>💰 AI 识别金额：</div>
+            <div style='font-size: 32px; font-weight: 900; color: {amt_color};'>¥ {float(item.get('amount', 0.0)):.2f}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 表单输入区域 (2行排布，更加清爽)
+        col1, col2, col3 = st.columns([1, 1, 1])
+        merchant = col1.text_input("🏪 商家名称", value=item.get("merchant", ""))
+        
+        type_options = ["支出", "收入"]
+        default_type = item.get("type", "支出")
+        tx_type = col2.selectbox("🏷️ 收支类型", options=type_options, index=type_options.index(default_type) if default_type in type_options else 0)
+        
+        amount = col3.number_input("✏️ 修改金额 (如无误请略过)", value=float(item.get("amount", 0.0)), format="%.2f")
+        
+        col4, col5 = st.columns([1, 1])
+        time = col4.text_input("⏰ 交易时间", value=item.get("time", ""))
+        category = col5.text_input("📂 分类", value=item.get("category", "其他"))
+        
+        st.markdown("---")
+        
+        # 【体验升级 3】动态按钮 (如果是最后一条，则显示完成保存)
+        btn_label = "➡️ 确认并核对下一条" if idx < total - 1 else "✅ 全部确认，保存进账本！"
+        
+        # 将按钮撑满全宽，更方便手机端点击
+        if st.form_submit_button(btn_label, use_container_width=True, type="primary"):
+            # 保存当前用户的修改回结果数组中
+            st.session_state.parsed_results[idx] = {
+                "时间": time, "收支": tx_type, "商家": merchant, "分类": category, "金额 (¥)": amount
+            }
+            
+            # 判断逻辑：下一页 or 结束保存
+            if idx < total - 1:
+                st.session_state.review_index += 1 # 进度 +1
+                st.rerun() # 重新刷新弹窗
+            else:
+                # 全都核对完了，写入全局账本
+                st.session_state.ledger_data.extend(st.session_state.parsed_results)
+                save_data(st.session_state.ledger_data)
+                
+                # 状态重置，关闭弹窗
+                st.session_state.parsed_results = None
+                st.session_state.review_index = 0
+                st.session_state.uploader_key += 1 
+                st.balloons()
+                st.rerun()
 
 # ==========================================
 # 5. 全局数据预处理
@@ -204,14 +238,17 @@ with tab1:
                     if st.button("🚀 智能解析提取", use_container_width=True, type="primary"):
                         with st.spinner("AI 正在光速解析，马上就好..."):
                             st.session_state.parsed_results = analyze_receipt_with_ai(image, api_key)
+                            # 解析成功后，确保进度条归零
+                            st.session_state.review_index = 0
                             st.rerun()
                             
+    # 唤起弹窗
     if st.session_state.parsed_results is not None:
         if isinstance(st.session_state.parsed_results, dict) and "error" in st.session_state.parsed_results:
             st.error(f"解析失败: {st.session_state.parsed_results['error']}")
             st.session_state.parsed_results = None 
         else:
-            confirm_dialog(st.session_state.parsed_results)
+            confirm_dialog() # 不用再传参，它会自动从 session_state 拿
 
 # ----------------- 标签页 2：财务明细 -----------------
 with tab2:
@@ -238,12 +275,10 @@ with tab3:
     if not has_data:
         st.info("📭 还没有数据哦，记几笔账再来看图表吧！")
     else:
-        # 【模块 1：双轨制目标监控】
         with st.container(border=True):
             st.subheader("🎯 财务目标监控进度")
             goal_col1, goal_col2 = st.columns(2, gap="large")
             
-            # 目标一：存款目标
             with goal_col1:
                 st.markdown("##### 💰 存款目标 (看结余)")
                 if target_savings > 0:
@@ -260,7 +295,6 @@ with tab3:
                 else:
                     st.write("尚未设置存款目标。")
 
-            # 目标二：支出预算
             with goal_col2:
                 st.markdown("##### 💸 支出预算 (看红线)")
                 if target_expense > 0:
@@ -277,7 +311,6 @@ with tab3:
                 else:
                     st.write("尚未设置支出预算。")
 
-        # 【模块 2：可视化图表区】
         df_expense = df[df["收支"] == "支出"]
         if not df_expense.empty:
             with st.container(border=True):
