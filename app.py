@@ -31,16 +31,22 @@ with st.sidebar:
         st.success("数据已清空！")
 
 # ==========================================
-# 3. 核心功能：AI 批量解析账单 (区分收支)
+# 3. 核心功能：AI 批量解析账单 (强化收支判断规则)
 # ==========================================
 def analyze_receipt_with_ai(image, api_key):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-2.5-flash')
     
-    # 【核心升级】在 Prompt 中加入收支类型 (type) 的判断
+    # 【核心升级】加入了明确的 + / - 符号识别规则
     prompt = """
-    你是一个智能财务助手。请分析这张图片，提取图片中【所有】的账单记录。
-    请判断每一笔是支出还是收入，并严格按照以下 JSON 数组 (Array) 格式返回：
+    你是一个极其精准的财务助手。请分析这张截图，提取图中【所有】的流水记录。
+    
+    【⚠️ 极其重要的收支判断规则】：
+    1. 支出判断：如果金额数字前带有 "-" 号（如 -35.00），或者明确是付款、消费、买单，请必须判定 "type" 为 "支出"。
+    2. 收入判断：如果金额数字前带有 "+" 号（如 +50.00），或者明确标注为收款、退款、转入、工资，请必须判定 "type" 为 "收入"。
+    3. 如果没有符号，请根据商家名称或交易场景推断。
+    
+    请严格按照以下 JSON 数组 (Array) 格式返回，金额请去掉正负号，只保留绝对值数字：
     [
       {
         "merchant": "星巴克",
@@ -50,16 +56,16 @@ def analyze_receipt_with_ai(image, api_key):
         "category": "餐饮"
       },
       {
-        "merchant": "公司代发工资",
+        "merchant": "微信转账",
         "type": "收入",
-        "amount": 8500.00,
+        "amount": 500.00,
         "time": "2026-03-11 09:00",
-        "category": "工资"
+        "category": "转账"
       }
     ]
-    * type 字段只能是 "支出" 或 "收入"。如果是退款，请记为 "收入"。
+    * type 字段只能是 "支出" 或 "收入"。
     * 分类建议：餐饮、交通、购物、居住、娱乐、投资、工资、退款、转账、其他。
-    如果图中只有一笔，也请放在数组 [ ] 内返回。不要输出任何多余的文字说明。
+    如果图中只有一笔，也请放在数组 [ ] 内返回。禁止输出任何多余的解释文字和Markdown标记。
     """
     
     try:
@@ -100,11 +106,9 @@ with tab1:
                     with st.form("batch_confirm_form"):
                         verified_data = []
                         for i, item in enumerate(results):
-                            # 【UI升级】为了放下“收支类型”，我们将一行分成了 5 列
                             cols = st.columns([2, 1.5, 2, 2.5, 1.5])
                             merchant = cols[0].text_input(f"商家 {i+1}", value=item.get("merchant", ""), key=f"m_{i}")
                             
-                            # 新增：下拉框选择收入/支出
                             type_options = ["支出", "收入"]
                             default_type = item.get("type", "支出")
                             type_index = type_options.index(default_type) if default_type in type_options else 0
@@ -116,7 +120,7 @@ with tab1:
                             
                             verified_data.append({
                                 "时间": time,
-                                "收支": tx_type,  # 存入新的字段
+                                "收支": tx_type, 
                                 "商家": merchant,
                                 "分类": category,
                                 "金额 (¥)": amount
@@ -138,8 +142,6 @@ with tab2:
     else:
         df = pd.DataFrame(st.session_state.ledger_data)
         
-        # 【逻辑升级】分别计算总收入、总支出和结余
-        # 兼容一下旧数据（如果之前存的数据没有"收支"字段，默认为"支出"）
         if "收支" not in df.columns:
             df["收支"] = "支出"
             
@@ -147,18 +149,15 @@ with tab2:
         total_expense = df[df["收支"] == "支出"]["金额 (¥)"].sum()
         balance = total_income - total_expense
         
-        # 顶部三大指标展示
         col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
         col1.metric("💰 总收入", f"¥ {total_income:.2f}")
         col2.metric("💸 总支出", f"¥ {total_expense:.2f}")
         col3.metric("💳 净结余", f"¥ {balance:.2f}")
         
         with col4:
-            # 下载按钮移到了最右边
-            st.write("") # 占位对齐
+            st.write("") 
             csv = df.to_csv(index=False).encode('utf-8-sig')
             st.download_button(label="📥 导出CSV", data=csv, file_name="我的账单流水.csv", mime="text/csv")
         
         st.markdown("---")
-        # 显示数据表
         st.data_editor(df, use_container_width=True, num_rows="dynamic")
