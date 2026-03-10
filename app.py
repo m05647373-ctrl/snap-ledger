@@ -39,15 +39,17 @@ if 'uploader_key' not in st.session_state:
 st.title("📸 咔嚓记账 SnapLedger")
 
 # ==========================================
-# 3. 侧边栏设置 (增加预算功能)
+# 3. 侧边栏设置 (升级为“双轨制”目标)
 # ==========================================
 with st.sidebar:
     st.header("⚙️ 全局设置")
     api_key = st.text_input("请输入 Google Gemini API Key:", type="password")
     st.markdown("---")
     
-    st.subheader("🎯 财务目标")
-    monthly_budget = st.number_input("设定本月预算 (¥)", min_value=0.0, value=3000.0, step=100.0)
+    # 【升级点 1】分层设置财务目标
+    st.subheader("🎯 我的财务目标")
+    target_savings = st.number_input("💰 本月预计存多少钱 (¥)", min_value=0.0, value=2000.0, step=500.0, help="目标结余 = 总收入 - 总支出")
+    target_expense = st.number_input("💸 本月最多花多少钱 (¥)", min_value=0.0, value=3000.0, step=500.0, help="支出预算红线")
     
     st.markdown("---")
     if st.button("🗑️ 清空所有账单数据"):
@@ -129,7 +131,6 @@ else:
 # ==========================================
 # 6. App 布局：三大独立板块
 # ==========================================
-# 新增了 "📈 数据图" 栏目！
 tab1, tab2, tab3 = st.tabs(["📝 记账录入", "📊 财务明细", "📈 数据图"])
 
 # ----------------- 标签页 1：记账录入 -----------------
@@ -184,12 +185,11 @@ with tab1:
         else:
             confirm_dialog(st.session_state.parsed_results)
 
-# ----------------- 标签页 2：财务明细 (仅保留硬核数据) -----------------
+# ----------------- 标签页 2：财务明细 -----------------
 with tab2:
     if not has_data:
         st.info("📭 当前账本空空如也，快去录入你的第一笔账单吧！")
     else:
-        # 【模块 1：核心收支指标】
         with st.container(border=True):
             st.subheader("💡 核心指标")
             col1, col2, col3, col4 = st.columns(4)
@@ -201,29 +201,54 @@ with tab2:
                 csv = df.to_csv(index=False).encode('utf-8-sig')
                 st.download_button("📥 导出CSV报表", data=csv, file_name="我的账单.csv", mime="text/csv", use_container_width=True)
 
-        # 【模块 2：详细流水表格】
         with st.container(border=True):
             st.subheader("📝 账单流水明细")
             st.data_editor(df.drop(columns=['日期'], errors='ignore'), use_container_width=True, num_rows="dynamic")
 
-# ----------------- 标签页 3：数据图 (全新独立的数据分析中心) -----------------
+# ----------------- 标签页 3：数据图 (升级双目标监控) -----------------
 with tab3:
     if not has_data:
         st.info("📭 还没有数据哦，记几笔账再来看图表吧！")
     else:
-        # 【模块 1：预算监控】
+        # 【模块 1：双轨制目标监控】
         with st.container(border=True):
-            st.subheader("🎯 预算监控")
-            budget_pct = (total_expense / monthly_budget) * 100 if monthly_budget > 0 else 0
-            if total_expense > monthly_budget:
-                st.error(f"🚨 **预算超标！** 本月预算 ¥{monthly_budget}，已支出 ¥{total_expense:.2f}，超支 ¥{(total_expense - monthly_budget):.2f}！")
-                st.progress(1.0)
-            elif budget_pct > 80:
-                st.warning(f"⚠️ **预算告急！** 已使用 {budget_pct:.1f}%。剩余额度：¥{(monthly_budget - total_expense):.2f}")
-                st.progress(budget_pct / 100)
-            else:
-                st.success(f"✅ **预算健康！** 剩余额度：¥{(monthly_budget - total_expense):.2f}")
-                st.progress(budget_pct / 100)
+            st.subheader("🎯 财务目标监控进度")
+            goal_col1, goal_col2 = st.columns(2, gap="large")
+            
+            # 目标一：存款目标 (进攻端)
+            with goal_col1:
+                st.markdown("##### 💰 存款目标 (看结余)")
+                if target_savings > 0:
+                    # 避免进度条超过 1.0 报错，且处理负数
+                    saving_pct = max(0.0, min(1.0, balance / target_savings)) 
+                    if balance >= target_savings:
+                        st.success(f"🎉 **目标达成！** 已存下 ¥{balance:.2f}，超额完成 ¥{(balance - target_savings):.2f}！")
+                        st.progress(1.0)
+                    elif balance > 0:
+                        st.info(f"⏳ **努力攒钱中...** 当前结余 ¥{balance:.2f}，距离目标还差 ¥{(target_savings - balance):.2f}。")
+                        st.progress(saving_pct)
+                    else:
+                        st.error(f"🚨 **存款告急！** 当前为负资产/月光状态，结余 ¥{balance:.2f}。")
+                        st.progress(0.0)
+                else:
+                    st.write("尚未设置存款目标。")
+
+            # 目标二：支出预算 (防守端)
+            with goal_col2:
+                st.markdown("##### 💸 支出预算 (看红线)")
+                if target_expense > 0:
+                    expense_pct = min(1.0, total_expense / target_expense)
+                    if total_expense > target_expense:
+                        st.error(f"🚨 **预算已超标！** 额度 ¥{target_expense}，已花 ¥{total_expense:.2f}，超支 ¥{(total_expense - target_expense):.2f}！")
+                        st.progress(1.0)
+                    elif expense_pct > 0.8:
+                        st.warning(f"⚠️ **预算告急！** 已花掉 {expense_pct*100:.1f}%，只剩 ¥{(target_expense - total_expense):.2f} 可以花了！")
+                        st.progress(expense_pct)
+                    else:
+                        st.success(f"✅ **预算健康！** 已花 ¥{total_expense:.2f}，还有 ¥{(target_expense - total_expense):.2f} 的安全额度。")
+                        st.progress(expense_pct)
+                else:
+                    st.write("尚未设置支出预算。")
 
         # 【模块 2：可视化图表区】
         df_expense = df[df["收支"] == "支出"]
@@ -235,7 +260,6 @@ with tab3:
                 
                 with chart_col1:
                     category_expense = df_expense.groupby('分类')['金额 (¥)'].sum().reset_index()
-                    # 高清带比例的甜甜圈图
                     fig_pie = px.pie(category_expense, values='金额 (¥)', names='分类', hole=0.4, title="支出分类占比")
                     fig_pie.update_traces(textposition='inside', textinfo='percent+label', hovertemplate="%{label}<br>金额: ¥%{value:.2f}<br>占比: %{percent}")
                     st.plotly_chart(fig_pie, use_container_width=True)
@@ -243,7 +267,6 @@ with tab3:
                 with chart_col2:
                     daily_expense = df_expense.groupby('日期')['金额 (¥)'].sum().reset_index()
                     daily_expense['日期'] = pd.to_datetime(daily_expense['日期'])
-                    # 可精确交互点击的曲线图
                     fig_line = px.line(daily_expense, x='日期', y='金额 (¥)', markers=True, title="每日支出趋势")
                     fig_line.update_traces(hovertemplate='日期: %{x}<br>支出: ¥%{y:.2f}')
                     st.plotly_chart(fig_line, use_container_width=True)
