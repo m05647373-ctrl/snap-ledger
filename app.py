@@ -90,7 +90,7 @@ with st.sidebar:
 # ==========================================
 def analyze_receipt_with_ai(image, api_key):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    model = genai.GenerativeModel('gemini-1.5-flash')
     prompt = """
     你是一个极其精准的财务助手。请分析这张截图，提取图中【所有】的流水记录。
     1. 支出：金额前有 "-" 号，或明确是付款、消费。
@@ -370,3 +370,4 @@ with tab3:
                     st.plotly_chart(fig_line, use_container_width=True)
         else:
             st.info("还没有记录任何支出，暂无法生成分析图表。")
+
