@@ -86,10 +86,11 @@ with st.sidebar:
         st.rerun()
 
 # ==========================================
-# 4. 核心功能：AI 解析与【全功能翻页弹窗】
+# 4. 核心功能：AI 解析与确认弹窗
 # ==========================================
 def analyze_receipt_with_ai(image, api_key):
     genai.configure(api_key=api_key)
+    # 使用稳健的 1.5 版本，防止频繁触发 429 限流报错
     model = genai.GenerativeModel('gemini-1.5-flash')
     prompt = """
     你是一个极其精准的财务助手。请分析这张截图，提取图中【所有】的流水记录。
@@ -117,8 +118,6 @@ def confirm_dialog():
     st.markdown("---")
 
     with st.form(key=f"review_form_{idx}"):
-        
-        # 金额高亮卡片
         amt_color = "#ff4b4b" if item.get("type", "支出") == "支出" else "#00c04b"
         st.markdown(f"""
         <div style='background-color: {amt_color}15; padding: 15px; border-radius: 10px; border-left: 6px solid {amt_color}; margin-bottom: 20px;'>
@@ -127,7 +126,6 @@ def confirm_dialog():
         </div>
         """, unsafe_allow_html=True)
         
-        # 输入区
         col1, col2, col3 = st.columns([1, 1, 1])
         merchant = col1.text_input("🏪 商家名称", value=item.get("merchant", ""))
         
@@ -143,28 +141,19 @@ def confirm_dialog():
         
         st.markdown("---")
         
-        # 【体验升级】三按钮排布：删除 / 上一条 / 下一条
         btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1.5])
         
         with btn_col1:
             btn_delete = st.form_submit_button("🗑️ 删除此条", use_container_width=True)
-            
         with btn_col2:
-            # 只有当不是第一条的时候，才显示“返回”按钮
-            if idx > 0:
-                btn_prev = st.form_submit_button("⬅️ 返回上一条", use_container_width=True)
-            else:
-                btn_prev = False
-                
+            btn_prev = st.form_submit_button("⬅️ 返回上一条", use_container_width=True) if idx > 0 else False
         with btn_col3:
             btn_label = "➡️ 确认并核对下一条" if idx < total - 1 else "✅ 全部确认，保存进账本！"
             btn_next = st.form_submit_button(btn_label, use_container_width=True, type="primary")
             
-        # --- 按钮逻辑处理 ---
         if btn_delete:
             st.session_state.parsed_results.pop(idx)
             new_total = len(st.session_state.parsed_results)
-            
             if new_total == 0:
                 st.session_state.parsed_results = None
                 st.session_state.review_index = 0
@@ -172,10 +161,8 @@ def confirm_dialog():
                 st.warning("所有识别结果均已删除。")
                 st.rerun()
             elif idx >= new_total:
-                # 删掉的是最后一条，把前面已经存活的存进账本
                 st.session_state.ledger_data.extend(st.session_state.parsed_results)
                 save_data(st.session_state.ledger_data)
-                
                 st.session_state.parsed_results = None
                 st.session_state.review_index = 0
                 st.session_state.uploader_key += 1 
@@ -185,7 +172,6 @@ def confirm_dialog():
                 st.rerun()
 
         elif btn_prev:
-            # 返回上一条之前，把当前页面哪怕修改了一半的数据也保存下来，防止丢失
             st.session_state.parsed_results[idx] = {
                 "时间": time, "收支": tx_type, "商家": merchant, "分类": category, "金额 (¥)": amount
             }
@@ -193,19 +179,15 @@ def confirm_dialog():
             st.rerun()
 
         elif btn_next:
-            # 保存当前用户的修改回结果数组中
             st.session_state.parsed_results[idx] = {
                 "时间": time, "收支": tx_type, "商家": merchant, "分类": category, "金额 (¥)": amount
             }
-            
             if idx < total - 1:
                 st.session_state.review_index += 1 
                 st.rerun() 
             else:
-                # 全都核对完了，写入全局账本
                 st.session_state.ledger_data.extend(st.session_state.parsed_results)
                 save_data(st.session_state.ledger_data)
-                
                 st.session_state.parsed_results = None
                 st.session_state.review_index = 0
                 st.session_state.uploader_key += 1 
@@ -213,7 +195,7 @@ def confirm_dialog():
                 st.rerun()
 
 # ==========================================
-# 5. 全局数据预处理
+# 5. 全局数据预处理 (解决排序问题的核心)
 # ==========================================
 has_data = len(st.session_state.ledger_data) > 0
 
@@ -221,8 +203,12 @@ if has_data:
     df = pd.DataFrame(st.session_state.ledger_data)
     if "收支" not in df.columns:
         df["收支"] = "支出"
+    
+    # 【修复排序痛点】：强制转换数据格式为“数字”和“时间格式”
+    df['金额 (¥)'] = pd.to_numeric(df['金额 (¥)'], errors='coerce').fillna(0.0)
+    df['时间'] = pd.to_datetime(df['时间'], errors='coerce')
         
-    df['日期'] = pd.to_datetime(df['时间'], errors='coerce').dt.date
+    df['日期'] = df['时间'].dt.date
     total_income = df[df["收支"] == "收入"]["金额 (¥)"].sum()
     total_expense = df[df["收支"] == "支出"]["金额 (¥)"].sum()
     balance = total_income - total_expense
@@ -249,20 +235,24 @@ with tab1:
                 m_merchant = st.text_input("商家名称 / 备注")
                 f_col3, f_col4 = st.columns(2)
                 m_category = f_col3.selectbox("分类", ["餐饮", "交通", "购物", "居住", "娱乐", "投资", "工资", "退款", "转账", "其他"])
-                now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                m_time = f_col4.text_input("时间", value=now_str)
+                
+                # 【修复时间痛点】：使用“现时”作为占位符，触发实时抓取
+                m_time = f_col4.text_input("时间", value="现时", help="保持为 '现时'，提交时将自动抓取精确到秒的当前时间")
                 
                 if st.form_submit_button("✅ 记一笔", use_container_width=True):
                     if m_amount <= 0:
                         st.error("金额不能为 0 呀！")
                     else:
+                        # 如果用户没动这个框，立刻抓取服务器/电脑这一刻的精确时间
+                        final_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") if m_time == "现时" else m_time
+                        
                         new_record = {
-                            "时间": m_time, "收支": m_type, "商家": m_merchant, 
+                            "时间": final_time, "收支": m_type, "商家": m_merchant, 
                             "分类": m_category, "金额 (¥)": m_amount
                         }
                         st.session_state.ledger_data.append(new_record)
                         save_data(st.session_state.ledger_data)
-                        st.success(f"成功记录一笔 {m_amount} 元的{m_type}！")
+                        st.success(f"已于 {final_time} 成功记录一笔 {m_amount} 元的{m_type}！")
 
     with col_ai:
         st.subheader("📸 AI 拍照提取")
@@ -288,7 +278,7 @@ with tab1:
         else:
             confirm_dialog() 
 
-# ----------------- 标签页 2：财务明细 -----------------
+# ----------------- 标签页 2：财务明细 (全面强化表格能力) -----------------
 with tab2:
     if not has_data:
         st.info("📭 当前账本空空如也，快去录入你的第一笔账单吧！")
@@ -305,8 +295,29 @@ with tab2:
                 st.download_button("📥 导出CSV报表", data=csv, file_name="我的账单.csv", mime="text/csv", use_container_width=True)
 
         with st.container(border=True):
-            st.subheader("📝 账单流水明细")
-            st.data_editor(df.drop(columns=['日期'], errors='ignore'), use_container_width=True, num_rows="dynamic")
+            st.subheader("📝 账单流水明细 (🔥 可直接在下方表格修改/删除数据！)")
+            st.info("💡 提示：点击表头可以按金额或时间排序。修改单元格后，点击最下方红色的【💾 保存修改】按钮即可生效。在表格最左侧勾选行并按键盘 Delete 键可以删除！")
+            
+            # 【修复编辑痛点】：配置交互式表格列，并将用户编辑的表格保存到变量 edited_df 中
+            edited_df = st.data_editor(
+                df.drop(columns=['日期'], errors='ignore'), 
+                use_container_width=True, 
+                num_rows="dynamic",
+                column_config={
+                    "时间": st.column_config.DatetimeColumn("时间 (可排序/编辑)", format="YYYY-MM-DD HH:mm:ss"),
+                    "金额 (¥)": st.column_config.NumberColumn("金额 (可排序/编辑)", format="%.2f")
+                }
+            )
+            
+            # 增加显式保存按钮，将修改后的数据存回 JSON
+            if st.button("💾 保存表格的修改/删除", type="primary"):
+                # 将日期格式转回普通文本，防止 JSON 报错
+                edited_df['时间'] = pd.to_datetime(edited_df['时间']).dt.strftime('%Y-%m-%d %H:%M:%S')
+                # 覆盖进 session_state 和 本地文件
+                st.session_state.ledger_data = edited_df.to_dict(orient="records")
+                save_data(st.session_state.ledger_data)
+                st.success("✅ 修改已永久保存！")
+                st.rerun()
 
 # ----------------- 标签页 3：数据图 -----------------
 with tab3:
@@ -370,4 +381,3 @@ with tab3:
                     st.plotly_chart(fig_line, use_container_width=True)
         else:
             st.info("还没有记录任何支出，暂无法生成分析图表。")
-
