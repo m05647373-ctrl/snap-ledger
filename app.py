@@ -76,7 +76,7 @@ with st.sidebar:
         save_settings(st.session_state.user_settings)
     
     st.markdown("---")
-    if st.button("🗑️ 清空所有账单数据"):
+    if st.button("🗑️ 清空所有账单数据", use_container_width=True):
         st.session_state.ledger_data = []
         save_data([]) 
         st.session_state.parsed_results = None
@@ -90,7 +90,6 @@ with st.sidebar:
 # ==========================================
 def analyze_receipt_with_ai(image, api_key):
     genai.configure(api_key=api_key)
-    # 使用稳健的 1.5 版本，防止频繁触发 429 限流报错
     model = genai.GenerativeModel('gemini-1.5-flash')
     prompt = """
     你是一个极其精准的财务助手。请分析这张截图，提取图中【所有】的流水记录。
@@ -148,7 +147,7 @@ def confirm_dialog():
         with btn_col2:
             btn_prev = st.form_submit_button("⬅️ 返回上一条", use_container_width=True) if idx > 0 else False
         with btn_col3:
-            btn_label = "➡️ 确认并核对下一条" if idx < total - 1 else "✅ 全部确认，保存进账本！"
+            btn_label = "➡️ 确认并下一条" if idx < total - 1 else "✅ 全部确认并保存！"
             btn_next = st.form_submit_button(btn_label, use_container_width=True, type="primary")
             
         if btn_delete:
@@ -195,7 +194,7 @@ def confirm_dialog():
                 st.rerun()
 
 # ==========================================
-# 5. 全局数据预处理 (解决排序问题的核心)
+# 5. 全局数据预处理 (带安全校验)
 # ==========================================
 has_data = len(st.session_state.ledger_data) > 0
 
@@ -204,8 +203,8 @@ if has_data:
     if "收支" not in df.columns:
         df["收支"] = "支出"
     
-    # 【修复排序痛点】：强制转换数据格式为“数字”和“时间格式”
     df['金额 (¥)'] = pd.to_numeric(df['金额 (¥)'], errors='coerce').fillna(0.0)
+    # 安全处理时间，防止空值报错
     df['时间'] = pd.to_datetime(df['时间'], errors='coerce')
         
     df['日期'] = df['时间'].dt.date
@@ -236,16 +235,13 @@ with tab1:
                 f_col3, f_col4 = st.columns(2)
                 m_category = f_col3.selectbox("分类", ["餐饮", "交通", "购物", "居住", "娱乐", "投资", "工资", "退款", "转账", "其他"])
                 
-                # 【修复时间痛点】：使用“现时”作为占位符，触发实时抓取
                 m_time = f_col4.text_input("时间", value="现时", help="保持为 '现时'，提交时将自动抓取精确到秒的当前时间")
                 
                 if st.form_submit_button("✅ 记一笔", use_container_width=True):
                     if m_amount <= 0:
                         st.error("金额不能为 0 呀！")
                     else:
-                        # 如果用户没动这个框，立刻抓取服务器/电脑这一刻的精确时间
                         final_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") if m_time == "现时" else m_time
-                        
                         new_record = {
                             "时间": final_time, "收支": m_type, "商家": m_merchant, 
                             "分类": m_category, "金额 (¥)": m_amount
@@ -278,7 +274,7 @@ with tab1:
         else:
             confirm_dialog() 
 
-# ----------------- 标签页 2：财务明细 (全面强化表格能力) -----------------
+# ----------------- 标签页 2：财务明细 (为手机端优化了删除体验) -----------------
 with tab2:
     if not has_data:
         st.info("📭 当前账本空空如也，快去录入你的第一笔账单吧！")
@@ -295,28 +291,45 @@ with tab2:
                 st.download_button("📥 导出CSV报表", data=csv, file_name="我的账单.csv", mime="text/csv", use_container_width=True)
 
         with st.container(border=True):
-            st.subheader("📝 账单流水明细 (🔥 可直接在下方表格修改/删除数据！)")
-            st.info("💡 提示：点击表头可以按金额或时间排序。修改单元格后，点击最下方红色的【💾 保存修改】按钮即可生效。在表格最左侧勾选行并按键盘 Delete 键可以删除！")
+            st.subheader("📝 账单流水明细")
+            st.info("📱 **手机端删除指南**：勾选最左侧的『🗑️ 勾选删除』，然后点击最下方的红色保存按钮即可！")
             
-            # 【修复编辑痛点】：配置交互式表格列，并将用户编辑的表格保存到变量 edited_df 中
+            # 【重要更新】：克隆一份专供显示和编辑的表格数据，在最前面强制塞入一列复选框
+            display_df = df.drop(columns=['日期'], errors='ignore').copy()
+            # 插入第一列作为删除标识
+            display_df.insert(0, "🗑️ 勾选删除", False)
+            
             edited_df = st.data_editor(
-                df.drop(columns=['日期'], errors='ignore'), 
+                display_df, 
                 use_container_width=True, 
                 num_rows="dynamic",
+                hide_index=True, # 隐藏最左侧烦人的数字序号，手机上更美观
                 column_config={
-                    "时间": st.column_config.DatetimeColumn("时间 (可排序/编辑)", format="YYYY-MM-DD HH:mm:ss"),
-                    "金额 (¥)": st.column_config.NumberColumn("金额 (可排序/编辑)", format="%.2f")
+                    "🗑️ 勾选删除": st.column_config.CheckboxColumn("🗑️ 勾选删除", default=False),
+                    "时间": st.column_config.DatetimeColumn("时间 (可排序)", format="YYYY-MM-DD HH:mm:ss"),
+                    "金额 (¥)": st.column_config.NumberColumn("金额 (可排序)", format="%.2f")
                 }
             )
             
-            # 增加显式保存按钮，将修改后的数据存回 JSON
-            if st.button("💾 保存表格的修改/删除", type="primary"):
-                # 将日期格式转回普通文本，防止 JSON 报错
-                edited_df['时间'] = pd.to_datetime(edited_df['时间']).dt.strftime('%Y-%m-%d %H:%M:%S')
-                # 覆盖进 session_state 和 本地文件
-                st.session_state.ledger_data = edited_df.to_dict(orient="records")
+            # 超大号保存按钮，适合手机触屏
+            if st.button("💾 保存表格的修改 / 批量删除", type="primary", use_container_width=True):
+                # 1. 过滤掉被用户打勾说要删除的行
+                final_df = edited_df[edited_df["🗑️ 勾选删除"] == False].copy()
+                
+                # 2. 扔掉没用的复选框这一列
+                final_df = final_df.drop(columns=["🗑️ 勾选删除"], errors='ignore')
+                
+                # 3. 将日期安全地转回普通文本，空值处理为空字符串（防止JSON报错）
+                final_df['时间'] = pd.to_datetime(final_df['时间'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
+                final_df['时间'] = final_df['时间'].fillna("")
+                
+                # 4. 其他空值填充兜底
+                final_df = final_df.fillna("")
+                
+                # 5. 覆盖并永久保存
+                st.session_state.ledger_data = final_df.to_dict(orient="records")
                 save_data(st.session_state.ledger_data)
-                st.success("✅ 修改已永久保存！")
+                st.success("✅ 修改与删除已永久生效！")
                 st.rerun()
 
 # ----------------- 标签页 3：数据图 -----------------
