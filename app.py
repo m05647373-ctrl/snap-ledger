@@ -27,7 +27,8 @@ def load_settings():
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    return {"target_savings": 2000.0, "target_expense": 3000.0}
+    # 新增：默认 API Key 为空字符串
+    return {"target_savings": 2000.0, "target_expense": 3000.0, "api_key": ""}
 
 def save_settings(settings):
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
@@ -50,11 +51,27 @@ if 'uploader_key' not in st.session_state:
     st.session_state.uploader_key = 0
 
 # ==========================================
-# 3. 侧边栏：隐藏的高级设置
+# 3. 侧边栏：隐藏的高级设置 (新增 API Key 永久记忆)
 # ==========================================
 with st.sidebar:
     st.header("⚙️ 账户与设置")
-    api_key = st.text_input("🔑 Google Gemini API Key:", type="password")
+    
+    # 提取历史保存的 API Key
+    saved_api_key = st.session_state.user_settings.get("api_key", "")
+    
+    # 将提取的值设为输入框的默认值
+    api_key = st.text_input("🔑 Google Gemini API Key:", value=saved_api_key, type="password")
+    
+    # 如果用户输入了新的 Key，立刻存入本地文件！
+    if api_key != saved_api_key:
+        st.session_state.user_settings["api_key"] = api_key
+        save_settings(st.session_state.user_settings)
+        
+    if api_key:
+        st.success("✅ API Key 已安全保存在本地，下次打开免输入！")
+    else:
+        st.warning("💡 提示：请输入 API Key 以激活 AI 识图功能。")
+        
     st.markdown("---")
     
     st.subheader("🎯 财务目标")
@@ -125,11 +142,11 @@ st.markdown(f"""
             <div style="color: #222; font-size: 32px; font-weight: bold;">{current_month_str} <span style="font-size:16px;">▾</span></div>
         </div>
         <div style="text-align: left; flex: 1; padding-left: 30px;">
-            <div style="color: #555; font-size: 14px;">收入</div>
+            <div style="color: #555; font-size: 14px;">当月收入</div>
             <div style="color: #222; font-size: 24px; font-weight: 500;">{month_income:.2f}</div>
         </div>
         <div style="text-align: left; flex: 1;">
-            <div style="color: #555; font-size: 14px;">支出</div>
+            <div style="color: #555; font-size: 14px;">当月支出</div>
             <div style="color: #222; font-size: 24px; font-weight: 500;">{month_expense:.2f}</div>
         </div>
     </div>
