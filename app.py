@@ -158,7 +158,7 @@ st.markdown(f"""
 # ==========================================
 def analyze_receipt_with_ai(image, api_key):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
     prompt = """提取图中所有流水记录。返回 JSON 数组格式：
     [ { "merchant": "星巴克", "type": "支出", "amount": 35.00, "time": "2026-03-11 14:30", "category": "餐饮" } ]"""
     try:
