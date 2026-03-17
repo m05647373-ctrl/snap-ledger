@@ -34,64 +34,77 @@ def save_settings(settings):
         json.dump(settings, f, ensure_ascii=False, indent=2)
 
 # ==========================================
-# 2. 页面基本配置 & 沉浸式 CSS 魔法
+# 2. 页面基本配置 & 沉浸式高级 CSS 魔法
 # ==========================================
 st.set_page_config(page_title="咔嚓记账 - 极简智能账本", page_icon="🦈", layout="centered")
 
 st.markdown("""
 <style>
-/* 隐藏顶部默认 Header */
+/* 隐藏顶部默认 Header，视野更开阔 */
 header {visibility: hidden;}
 
-/* --- 底部悬浮导航栏 --- */
+/* --- 🌟 UI升级：原生级底部悬浮导航栏 --- */
 div[data-testid="stRadio"] {
     position: fixed;
     bottom: 0;
     left: 0;
     width: 100vw;
-    background-color: rgba(255, 255, 255, 0.95);
-    backdrop-filter: blur(10px);
-    padding: 10px 0 calc(10px + env(safe-area-inset-bottom)) 0;
-    box-shadow: 0 -4px 15px rgba(0,0,0,0.05);
+    background-color: rgba(255, 255, 255, 0.90); /* 微微透明 */
+    backdrop-filter: blur(15px); /* 苹果级毛玻璃特效 */
+    padding: 12px 0 calc(15px + env(safe-area-inset-bottom)) 0;
+    border-top: 1px solid rgba(0,0,0,0.05); /* 顶部极其细腻的分割线 */
+    box-shadow: 0 -5px 20px rgba(0,0,0,0.03);
     z-index: 9999;
     margin: 0;
 }
+/* 隐藏标题 */
 div[data-testid="stRadio"] > label { display: none !important; }
-div[role="radiogroup"] { display: flex; justify-content: space-evenly; width: 100%; }
-.block-container { padding-bottom: 120px !important; padding-top: 15px !important; }
+/* 均分按钮空间 */
+div[role="radiogroup"] { display: flex; justify-content: space-evenly; width: 100%; gap: 0; }
+/* 🔥 隐藏默认的单选框圆点，让它看起来像真正的 App 按钮！ */
+div[role="radiogroup"] label > div:first-child { display: none !important; }
+/* 优化按钮文字的排版和点击区域 */
+div[role="radiogroup"] label { 
+    flex-direction: column; 
+    justify-content: center; 
+    align-items: center; 
+    padding: 8px 10px;
+    background: transparent !important;
+    border: none !important;
+    font-weight: 600 !important;
+}
 
-/* --- 🔥 核心魔法：将原生组件伪装成鲨鱼黄头部 --- */
-/* 把主页面的第一个横向排列栏变黄加圆角 */
+/* 底部防遮挡留白 */
+.block-container { padding-bottom: 130px !important; padding-top: 10px !important; }
+
+/* --- 完美融入的鲨鱼黄头部 --- */
 section.main div[data-testid="stHorizontalBlock"]:first-of-type {
     background-color: #fcd535;
     padding: 25px 20px 20px 20px;
-    border-radius: 20px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-    margin-bottom: 25px;
+    border-radius: 24px; /* 更圆润更可爱 */
+    box-shadow: 0 8px 20px rgba(252, 213, 53, 0.2); /* 增加同色系发光阴影 */
+    margin-bottom: 30px;
     align-items: center;
 }
-/* 将下拉选择框背景透明化、去边框，伪装成大标题 */
 section.main div[data-testid="stHorizontalBlock"]:first-of-type div[data-baseweb="select"] > div {
     background-color: transparent !important;
     border: none !important;
     box-shadow: none !important;
     cursor: pointer;
 }
-/* 放大月份文字 */
 section.main div[data-testid="stHorizontalBlock"]:first-of-type div[data-baseweb="select"] span {
-    font-size: 36px !important;
+    font-size: 38px !important;
     font-weight: 900 !important;
     color: #222 !important;
 }
-/* 美化右侧的收入支出指标文字 */
 section.main div[data-testid="stHorizontalBlock"]:first-of-type div[data-testid="stMetric"] label {
     color: #666 !important;
     font-size: 13px !important;
 }
 section.main div[data-testid="stHorizontalBlock"]:first-of-type div[data-testid="stMetric"] div {
     color: #222 !important;
-    font-size: 24px !important;
-    font-weight: 600 !important;
+    font-size: 26px !important;
+    font-weight: 700 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -143,7 +156,6 @@ if has_data:
     df = pd.DataFrame(st.session_state.ledger_data)
     if "收支" not in df.columns: df["收支"] = "支出"
     
-    # 强制将底层数据转为正规的数字和时间类型，这是后续点击排序生效的核心！
     df['金额 (¥)'] = pd.to_numeric(df['金额 (¥)'], errors='coerce').fillna(0.0)
     df['时间'] = pd.to_datetime(df['时间'], errors='coerce')
     df['日期'] = df['时间'].dt.date
@@ -161,16 +173,27 @@ else:
     total_income_all = total_expense_all = balance_all = 0.0
 
 # ==========================================
-# 5. 🔥 全新顶部组件：将下拉菜单完美融入卡片
+# 5. 🔥 核心修复：把导航栏提前到最前面，彻底消灭滞后感！
+# ==========================================
+nav_options = ["📊 明细", "✍️ 记账", "📸 识图", "📈 分析"]
+
+# 直接在这里获取用户的点击，后面的代码立马就能用这个最新的状态，0延迟！
+current_nav = st.radio(
+    "底部导航", 
+    nav_options, 
+    horizontal=True, 
+    label_visibility="collapsed"
+)
+
+# ==========================================
+# 6. 顶部组件：鲨鱼黄卡片
 # ==========================================
 header_c1, header_c2, header_c3 = st.columns([1.5, 1, 1])
 
 with header_c1:
-    # 默认选中第一个月
     disp_year = all_months[0].split("-")[0] + "年"
     st.markdown(f"<div style='color:#555; font-size:14px; margin-bottom:-15px; padding-left:15px;'>{disp_year}</div>", unsafe_allow_html=True)
     
-    # 【神来之笔】：用 format_func 截取月份，并在后面加上下拉小箭头
     selected_ym = st.selectbox(
         "月份", 
         all_months, 
@@ -191,7 +214,7 @@ with header_c3:
     st.metric("本月支出", f"{month_expense:.2f}")
 
 # ==========================================
-# 6. AI 逻辑与去重处理 (2.5 引擎)
+# 7. AI 逻辑与去重处理 (2.5 引擎)
 # ==========================================
 def analyze_receipt_with_ai(image, api_key):
     genai.configure(api_key=api_key)
@@ -298,21 +321,16 @@ def confirm_dialog():
             st.rerun()
 
 # ==========================================
-# 7. 主体内容渲染 (根据底部导航切换)
+# 8. 主体内容渲染 (毫无迟滞的页面切换)
 # ==========================================
-nav_options = ["📊 财务明细", "✍️ 记账录入", "📸 图片识别", "📈 数据图"]
-if 'current_nav' not in st.session_state: st.session_state.current_nav = "📊 财务明细"
 
-if st.session_state.current_nav == "📊 财务明细":
+if current_nav == "📊 明细":
     if not has_data:
         st.info("📭 暂无流水，快去记一笔吧！")
     else:
-        st.info("💡 **操作秘籍**：\n1. 点击表头【时间】或【金额】即可自动排序！\n2. 勾选最右侧可删除脏数据，记得点底部按钮保存。")
-        
+        st.caption("💡 点击表头【时间↕】或【金额↕】即可排序。勾选最右侧可删除数据。")
         display_df = df.drop(columns=['日期', '月份'], errors='ignore').copy()
         display_df["🗑️ 勾选删除"] = False 
-        
-        # 强制转换为 Streamlit 可排序的原生数据类型
         display_df['时间'] = pd.to_datetime(display_df['时间'], errors='coerce')
         display_df['金额 (¥)'] = pd.to_numeric(display_df['金额 (¥)'], errors='coerce')
         
@@ -323,7 +341,6 @@ if st.session_state.current_nav == "📊 财务明细":
             hide_index=True, 
             column_config={
                 "🗑️ 勾选删除": st.column_config.CheckboxColumn("🗑️ 勾选删除", default=False),
-                # 指定为 DatetimeColumn 激活原生点击排序
                 "时间": st.column_config.DatetimeColumn("时间 ↕", format="YYYY-MM-DD HH:mm:ss"),
                 "金额 (¥)": st.column_config.NumberColumn("金额 ↕", format="%.2f")
             }
@@ -332,7 +349,6 @@ if st.session_state.current_nav == "📊 财务明细":
         if st.button("💾 确认删除 / 保存修改", type="primary", use_container_width=True):
             final_df = edited_df[edited_df["🗑️ 勾选删除"] == False].copy()
             final_df = final_df.drop(columns=["🗑️ 勾选删除"], errors='ignore')
-            # 存入 JSON 前安全转回文本格式
             final_df['时间'] = pd.to_datetime(final_df['时间'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
             final_df = final_df.fillna("")
             st.session_state.ledger_data = final_df.to_dict(orient="records")
@@ -340,8 +356,7 @@ if st.session_state.current_nav == "📊 财务明细":
             st.success("✅ 操作已永久生效！")
             st.rerun()
 
-elif st.session_state.current_nav == "✍️ 记账录入":
-    st.subheader("✍️ 记录一笔新账单")
+elif current_nav == "✍️ 记账":
     with st.container(border=True):
         with st.form("manual_entry_form", clear_on_submit=True):
             f_col1, f_col2 = st.columns(2)
@@ -352,7 +367,7 @@ elif st.session_state.current_nav == "✍️ 记账录入":
             m_category = f_col3.selectbox("分类", ["餐饮", "交通", "购物", "居住", "娱乐", "投资", "工资", "退款", "转账", "其他"])
             m_time = f_col4.text_input("时间", value="现时", help="保持为 '现时' 将自动抓取精确时间")
             
-            if st.form_submit_button("✅ 记一笔", use_container_width=True, type="primary"):
+            if st.form_submit_button("✅ 保存这笔账单", use_container_width=True, type="primary"):
                 if m_amount <= 0: st.error("金额不能为 0 呀！")
                 else:
                     final_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") if m_time == "现时" else m_time
@@ -361,10 +376,9 @@ elif st.session_state.current_nav == "✍️ 记账录入":
                     st.success(f"已成功入账：¥ {m_amount}！")
                     st.rerun()
 
-elif st.session_state.current_nav == "📸 图片识别":
-    st.subheader("📸 AI 上传并解析账单")
+elif current_nav == "📸 识图":
     with st.container(border=True):
-        uploaded_file = st.file_uploader("上传截图或发票自动解析...", type=["jpg", "jpeg", "png", "webp"], key=f"uploader_{st.session_state.uploader_key}")
+        uploaded_file = st.file_uploader("支持微信/支付宝截图与小票", type=["jpg", "jpeg", "png", "webp"], key=f"uploader_{st.session_state.uploader_key}")
         if uploaded_file is not None:
             st.image(Image.open(uploaded_file), use_container_width=True)
             if not api_key:
@@ -386,13 +400,13 @@ elif st.session_state.current_nav == "📸 图片识别":
                         
     if st.session_state.parsed_results is not None: confirm_dialog() 
 
-elif st.session_state.current_nav == "📈 数据图":
+elif current_nav == "📈 分析":
     if not has_data:
         st.info("📭 暂无数据可分析")
     else:
-        disp_month = selected_ym.split("-")[1] + "月"
+        disp_month_text = selected_ym.split("-")[1] + "月"
         month_balance = month_income - month_expense
-        st.markdown(f"#### 🎯 【{disp_month}】预算防线")
+        st.markdown(f"#### 🎯 【{disp_month_text}】预算防线")
         g1, g2 = st.columns(2)
         with g1:
             st.caption("💰 本月存款进度")
@@ -416,13 +430,3 @@ elif st.session_state.current_nav == "📈 数据图":
             with c2:
                 fig_line = px.line(exp_df.groupby('日期')['金额 (¥)'].sum().reset_index(), x='日期', y='金额 (¥)', markers=True, title="每日支出趋势")
                 st.plotly_chart(fig_line, use_container_width=True)
-
-# ==========================================
-# 8. 绝对底部的物理导航栏
-# ==========================================
-st.session_state.current_nav = st.radio(
-    "底部导航", 
-    nav_options, 
-    horizontal=True, 
-    index=nav_options.index(st.session_state.current_nav)
-)
